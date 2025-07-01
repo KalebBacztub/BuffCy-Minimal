@@ -14,7 +14,8 @@ def configure_run(target_binary: str, aslr_mode: str):
         f.write(f"ASLR_SETTING={aslr_value}\n")
     
     print(f"✅ Configuration set in 'run.env': Target='{target_binary}', ASLR='{aslr_mode.upper()}'")
-    print("\nReady to run. Use: docker compose up --build")
+    # This line is now corrected
+    print("\nReady to run. Use: docker compose --env-file run.env up --build")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Configure a BuffCy-Minimal run.")
