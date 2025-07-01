@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  # The AI Agent Service
+  agent:
+    build: .
+    volumes:
+      - .:/app # Mounts your current project folder into the container
+    working_dir: /app
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+    # The command that starts the agent's main logic
+    command: python3 main.py
+    # Depends on the target being up
+    depends_on:
+      - target
+    # Allow the agent to trace the target process
+    cap_add:
+      - SYS_PTRACE
+
+  # The Vulnerable Target Service
+  target:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Expose the GDB server port to the agent on the shared network
+    ports:
+      - "8080:8080"
+    # Allow the agent container to trace this container
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp=unconfined

