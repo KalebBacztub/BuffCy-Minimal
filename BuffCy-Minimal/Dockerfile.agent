@@ -1,0 +1,14 @@
+# Start with a standard Python 3 image
+FROM python:3.11-slim
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy the requirements file first to leverage Docker cache
+COPY requirements.txt .
+
+# Install the Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy all your project files into the container
+COPY . .

@@ -11,16 +11,22 @@ RUN pip3 install pygdbmi
 
 # --- This is the new part ---
 # Declare an argument that we will get from docker-compose
-ARG TARGET_BINARY=connmand_no_sec
+ARG TARGET_BINARY
 
-# Set up the working directory
+# Set up the working directory inside the container
 WORKDIR /app
 
 # Copy the specific binary we chose into the container
-COPY targets/${TARGET_BINARY} .
+COPY targets/${TARGET_BINARY} ./${TARGET_BINARY}
+# Copy the server and the new entrypoint script
+COPY gdb_mcp_server.py .
+COPY entrypoint.sh .
+
+# Make the entrypoint script executable
+RUN chmod +x entrypoint.sh
 
 # Expose the GDB server port
 EXPOSE 8080
 
-# Run the GDB server with the chosen binary
-CMD ["python3", "gdb_mcp_server.py", "./${TARGET_BINARY}"]
+# Set the entrypoint to our new script
+ENTRYPOINT ["./entrypoint.sh"]

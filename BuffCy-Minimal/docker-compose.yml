@@ -2,13 +2,16 @@ version: '3.8'
 
 services:
   agent:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.agent
+    env_file:
+      - .env
+      - run.env
     volumes:
       - .:/app
     working_dir: /app
-    environment:
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    command: python3 main.py --target ${TARGET_BINARY} --aslr ${ASLR_SETTING:-on}
+    command: python3 main.py
     depends_on:
       - target
     cap_add:
@@ -20,13 +23,9 @@ services:
       dockerfile: Dockerfile
       args:
         - TARGET_BINARY=${TARGET_BINARY}
+    env_file:
+      - run.env
     ports:
       - "8080:8080"
-    # This gives the container the necessary permissions to change kernel parameters
-    privileged: true 
-    # This command now runs first to set ASLR, then starts the GDB server
-    command: >
-      sh -c "echo ${ASLR_SETTING} > /proc/sys/kernel/randomize_va_space && 
-             echo 'ASLR set to:' && 
-             cat /proc/sys/kernel/randomize_va_space && 
-             python3 gdb_mcp_server.py ./${TARGET_BINARY}"
+    privileged: true
+    # The command is now handled by the ENTRYPOINT in the Dockerfile
