@@ -1,30 +1,26 @@
 # Use a 32-bit version of Ubuntu
 FROM i386/ubuntu:16.04
 
-# Avoid interactive prompts during build
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install 32-bit dependencies
+# Install dependencies
 RUN dpkg --add-architecture i386
 RUN apt-get update && apt-get install -y \
-    gdb \
-    python3 \
-    python3-pip \
-    libc6:i386 \
-    && apt-get clean
-
-# Install the GDB MI library for Python
+    gdb python3 python3-pip libc6:i386 && apt-get clean
 RUN pip3 install pygdbmi
 
-# Set up the working directory inside the container
+# --- This is the new part ---
+# Declare an argument that we will get from docker-compose
+ARG TARGET_BINARY=connmand_no_sec
+
+# Set up the working directory
 WORKDIR /app
 
-# Copy the server and the vulnerable binary into the container
-COPY gdb_mcp_server.py .
-COPY target/connmand .
+# Copy the specific binary we chose into the container
+COPY targets/${TARGET_BINARY} .
 
-# Expose the port for the GDB server to listen on
+# Expose the GDB server port
 EXPOSE 8080
 
-# This command will be run when the container starts
-CMD ["python3", "gdb_mcp_server.py", "./connmand"]
+# Run the GDB server with the chosen binary
+CMD ["python3", "gdb_mcp_server.py", "./${TARGET_BINARY}"]

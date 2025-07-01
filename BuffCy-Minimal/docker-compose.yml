@@ -1,33 +1,32 @@
 version: '3.8'
 
 services:
-  # The AI Agent Service
   agent:
     build: .
     volumes:
-      - .:/app # Mounts your current project folder into the container
+      - .:/app
     working_dir: /app
     environment:
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-    # The command that starts the agent's main logic
-    command: python3 main.py
-    # Depends on the target being up
+    command: python3 main.py --target ${TARGET_BINARY} --aslr ${ASLR_SETTING:-on}
     depends_on:
       - target
-    # Allow the agent to trace the target process
     cap_add:
       - SYS_PTRACE
 
-  # The Vulnerable Target Service
   target:
     build:
       context: .
       dockerfile: Dockerfile
-    # Expose the GDB server port to the agent on the shared network
+      args:
+        - TARGET_BINARY=${TARGET_BINARY}
     ports:
       - "8080:8080"
-    # Allow the agent container to trace this container
-    cap_add:
-      - SYS_PTRACE
-    security_opt:
-      - seccomp=unconfined
+    # This gives the container the necessary permissions to change kernel parameters
+    privileged: true 
+    # This command now runs first to set ASLR, then starts the GDB server
+    command: >
+      sh -c "echo ${ASLR_SETTING} > /proc/sys/kernel/randomize_va_space && 
+             echo 'ASLR set to:' && 
+             cat /proc/sys/kernel/randomize_va_space && 
+             python3 gdb_mcp_server.py ./${TARGET_BINARY}"

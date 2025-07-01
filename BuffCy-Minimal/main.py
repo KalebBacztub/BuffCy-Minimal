@@ -1,69 +1,72 @@
 # main.py
-import socket
+import subprocess
 import time
 import json
+import argparse
 from dotenv import load_dotenv
 from agent import ExploitAgent
 
 load_dotenv()
 
-TARGET_HOST = 'target' # The service name from docker-compose.yml
-TARGET_PORT = 8080
+def run_exploit(target_binary_name: str, aslr_mode: str):
+    """
+    The main exploit orchestration logic.
+    """
+    print(f"***** LAUNCHING EXPLOIT RUN FOR: {target_binary_name} (ASLR: {aslr_mode.upper()}) *****")
+    
+    # Determine the numeric value for ASLR setting
+    aslr_value = "2" if aslr_mode == 'on' else "0"
 
-class GDBClient:
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = None
+    # Set the environment variables for docker-compose
+    with open('.env', 'w') as f:
+        # Note: 'w' mode overwrites the file each run to ensure clean state
+        f.write(f"OPENROUTER_API_KEY={os.getenv('OPENROUTER_API_KEY')}\n")
+        f.write(f"TARGET_BINARY={target_binary_name}\n")
+        f.write(f"ASLR_SETTING={aslr_value}\n")
 
-    def connect(self):
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Keep trying to connect until the target container is ready
-        for _ in range(10):
-            try:
-                self.sock.connect((self.host, self.port))
-                print("Connected to GDB MCP Server.")
-                return
-            except ConnectionRefusedError:
-                time.sleep(1)
-        raise ConnectionRefusedError("Could not connect to GDB server.")
+    # --- Build and Start Containers ---
+    print("\nBuilding and starting containers...")
+    # Use '--force-recreate' to ensure the target starts fresh with the new ASLR setting
+    subprocess.run(["docker", "compose", "up", "--build", "-d", "--force-recreate"])
+    
+    # Wait for containers to be ready
+    print("Waiting for containers to initialize...")
+    time.sleep(5) 
+    print("Containers are up.")
 
-    def send_command(self, method, params=None):
-        if not self.sock:
-            self.connect()
+    try:
+        agent = ExploitAgent(model_name="openai/gpt-4o")
         
-        request = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
-        self.sock.sendall(json.dumps(request).encode())
-        response_data = self.sock.recv(4096)
-        return json.loads(response_data.decode())
+        print("\n--- Agent is now ready to interact with the target ---")
+        print("--- The system is running. Press Ctrl+C to stop. ---")
+        # The rest of your agent's interaction logic would go here.
+        while True:
+            time.sleep(1)
 
-    def close(self):
-        if self.sock:
-            self.sock.close()
-
-def run_exploit():
-    agent = ExploitAgent(model_name="openai/gpt-4o")
-    gdb_client = GDBClient(TARGET_HOST, TARGET_PORT)
-    gdb_client.connect()
-
-    # --- Phase 1: Find Offset ---
-    print("--- 🚀 PHASE: Find EIP Offset ---")
-    pattern = agent.generate_cyclic_pattern(1200)
-    
-    # Use the DNS spoofer to send the payload
-    subprocess.run(['python3', 'dns_spoofer.py', '--payload', pattern.encode().hex()])
-    subprocess.run(['dig', '@127.0.0.1', 'dos.com'], capture_output=True, check=False)
-    
-    # Tell GDB to run and get the crash info
-    crash_info = gdb_client.send_command('run_and_wait_for_crash')
-    offset = agent.analyze_crash_and_get_offset(json.dumps(crash_info))
-    print(f"Agent determined offset: {offset}")
-    print("--- ✅ SUCCESS: Find EIP Offset ---")
-    
-    # In a real loop, you would now close the client, restart the containers,
-    # and run the next phase. For simplicity, we stop here.
-    print("\n🎉 Minimal exploit sequence complete. Offset found.")
-    gdb_client.close()
+    except KeyboardInterrupt:
+        print("\nUser interrupted. Shutting down...")
+    finally:
+        # --- Cleanup ---
+        print("Stopping and removing containers...")
+        subprocess.run(["docker", "compose", "down"])
+        print("Cleanup complete.")
 
 if __name__ == "__main__":
-    run_exploit()
+    parser = argparse.ArgumentParser(description="BuffCy-Minimal Exploit Agent Runner")
+    parser.add_argument(
+        "--target",
+        type=str,
+        required=True,
+        help="The name of the binary in the ./targets/ directory to attack."
+    )
+    # New argument to control ASLR
+    parser.add_argument(
+        "--aslr",
+        type=str,
+        choices=['on', 'off'],
+        default='on',
+        help="Set ASLR state inside the target container ('on' or 'off')."
+    )
+    args = parser.parse_args()
+    
+    run_exploit(args.target, args.aslr)
