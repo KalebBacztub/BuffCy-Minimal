@@ -9,7 +9,7 @@ services:
       - .:/app
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /app
-    command: python3 main.py
+    command: python3 main.py --target %%TARGET_BINARY%%
     depends_on:
       - target
     cap_add:
@@ -20,16 +20,11 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # These placeholders will be replaced by the script
         - CFLAGS=%%TARGET_CFLAGS%%
         - TARGET_BINARY=%%TARGET_BINARY%%
     ports:
       - "8080:8080"
     privileged: true 
-    # The entrypoint will read the variables from this file
-    entrypoint: >
-      sh -c "echo ${ASLR_SETTING} > /proc/sys/kernel/randomize_va_space && 
-             ./entrypoint.sh %%TARGET_BINARY%%"
 
 networks:
   default:

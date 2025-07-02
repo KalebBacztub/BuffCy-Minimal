@@ -5,7 +5,6 @@ services:
       dockerfile: Dockerfile.agent
     env_file:
       - .env
-    # We mount the run.env file directly for the agent to read if needed
     volumes:
       - .:/app
       - /var/run/docker.sock:/var/run/docker.sock
@@ -20,17 +19,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # This makes variables from the .env file available during the build
-      args:
-        - TARGET_BINARY=${TARGET_BINARY}
-        - CFLAGS=${TARGET_CFLAGS}
-    # This makes variables available inside the running container
-    environment:
-      - ASLR_SETTING=${ASLR_SETTING}
-      - TARGET_BINARY=${TARGET_BINARY}
     ports:
       - "8080:8080"
-    privileged: true 
+    # Privileged is still needed for GDB to attach properly
+    privileged: true
 
 networks:
   default:

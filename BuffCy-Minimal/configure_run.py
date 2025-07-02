@@ -1,12 +1,23 @@
 # configure_run.py
 import argparse
+import subprocess
+
+def set_aslr(aslr_mode: str):
+    aslr_value = "0" if aslr_mode == 'off' else "2"
+    print(f"[CONFIG] Setting ASLR to {aslr_value}...")
+    try:
+        subprocess.run(
+            ["sysctl", "-w", f"kernel.randomize_va_space={aslr_value}"],
+            check=True,
+            capture_output=True
+        )
+        print(f"[CONFIG] ASLR set successfully.")
+    except Exception as e:
+        print(f"FATAL: Failed to set ASLR. Run this script with 'sudo'. Error: {e}")
+        exit(1)
 
 def configure_run(target_name: str, aslr_mode: str):
-    """
-    Reads a template and generates a specific docker-compose.run.yml
-    with the configuration hardcoded to avoid environment variable issues.
-    """
-    aslr_value = "2" if aslr_mode == 'on' else "0"
+    set_aslr(aslr_mode)
     
     cflags_map = {
         "connmand_no_sec": "-m32 -O2 -fno-stack-protector -z execstack -no-pie",
@@ -24,15 +35,13 @@ def configure_run(target_name: str, aslr_mode: str):
         print("FATAL: docker-compose.template.yml not found.")
         return
 
-    # Replace placeholders with actual values
     content = template_content.replace('%%TARGET_BINARY%%', target_name)
     content = content.replace('%%TARGET_CFLAGS%%', cflags)
-    content = content.replace('${ASLR_SETTING}', aslr_value) # Direct replacement
 
     with open('docker-compose.run.yml', 'w') as f:
         f.write(content)
     
-    print(f"✅ Generated 'docker-compose.run.yml' for Target='{target_name}', ASLR='{aslr_mode.upper()}'")
+    print(f"✅ Generated 'docker-compose.run.yml' for Target='{target_name}'")
     print("\nReady to run. Use: docker compose -f docker-compose.run.yml up --build")
 
 if __name__ == "__main__":
