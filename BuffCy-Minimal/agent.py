@@ -2,7 +2,8 @@
 import os
 from openai import OpenAI
 import re
-from prompts import SYSTEM_PROMPT, FIND_OFFSET_PROMPT # Import the new prompts
+import json # Added for better printing
+from prompts import SYSTEM_PROMPT, FIND_OFFSET_PROMPT
 
 class ExploitAgent:
     def __init__(self, model_name="openai/gpt-4o"):
@@ -17,7 +18,7 @@ class ExploitAgent:
         self.model = model_name
 
     def _call_llm(self, user_prompt: str) -> str:
-        """A simple wrapper for calling the LLM with the new system prompt."""
+        """A wrapper for calling the LLM that now logs the raw response."""
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -27,12 +28,20 @@ class ExploitAgent:
                 ],
                 temperature=0.1,
             )
-            return response.choices[0].message.content
+            raw_response_content = response.choices[0].message.content
+            
+            # --- CHANGE 1: ADDED LOGGING ---
+            # This will print the AI's full reasoning to the console.
+            print("\n--- [AI REASONING] ---")
+            print(raw_response_content)
+            print("--- [END AI REASONING] ---\n")
+            
+            return raw_response_content
         except Exception as e:
+            print(f"LLM Error: {e}")
             return f"LLM Error: {e}"
             
     def generate_cyclic_pattern(self, length: int) -> str:
-        # This function remains the same.
         charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         pattern = ""
         for i in range(length // 3):
@@ -43,8 +52,7 @@ class ExploitAgent:
         return pattern[:length]
 
     def analyze_crash_and_get_offset(self, crash_data: dict, pattern_length: int) -> int:
-        """Analyzes GDB output to extract EIP and calculate the pattern offset."""
-        # Use the new, more detailed prompt template
+        """Analyzes GDB output and relies solely on the LLM to find the offset."""
         prompt = FIND_OFFSET_PROMPT.format(
             pattern_length=pattern_length,
             gdb_output=json.dumps(crash_data, indent=2)
@@ -52,10 +60,12 @@ class ExploitAgent:
         response_text = self._call_llm(prompt)
         
         match = re.search(r'\d+', response_text)
+        
+        # --- CHANGE 2: REMOVED FALLBACK ---
+        # The agent must now succeed on its own.
         if match:
             return int(match.group(0))
-        
-        print("Warning: LLM failed to parse offset. Using known value.")
-        return 1048 #
+        else:
+            raise ValueError("LLM response did not contain a valid integer offset.")
 
-    # The other methods like select_return_address and craft_final_payload remain the same
+    # Future methods for Phase 2 will go here

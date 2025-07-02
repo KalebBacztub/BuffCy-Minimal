@@ -4,14 +4,29 @@ FROM python:3.11-slim
 # Set the working directory inside the container
 WORKDIR /app
 
-# Update the package manager and install dnsutils (which contains 'dig')
-RUN apt-get update && apt-get install -y dnsutils && apt-get clean
+# --- This is the fix for the docker client ---
+# 1. Install prerequisites for adding a new repository
+RUN apt-get update && apt-get install -y ca-certificates curl gnupg
 
-# Copy the requirements file first to leverage Docker cache
+# 2. Add Docker’s official GPG key
+RUN install -m 0755 -d /etc/apt/keyrings
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
+RUN chmod a+r /etc/apt/keyrings/docker.asc
+
+# 3. Set up the Docker repository
+RUN echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+# 4. Update package list again and install the correct packages
+RUN apt-get update && apt-get install -y dnsutils docker-ce-cli
+
+# --- End of fix ---
+
+# Copy and install Python dependencies
 COPY requirements.txt .
-
-# Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy all your project files into the container
+# Copy the rest of the project files
 COPY . .

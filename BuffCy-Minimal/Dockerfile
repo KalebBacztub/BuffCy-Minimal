@@ -23,7 +23,8 @@ WORKDIR /app
 # Copy the necessary files into the container
 COPY targets/${TARGET_BINARY} ./${TARGET_BINARY}
 COPY gdb_mcp_server.py .
-COPY dns_spoofer.py .  # <-- ADD THIS LINE
+COPY dns_spoofer.py .
+COPY deliver_payload.py .
 COPY entrypoint.sh .
 
 # Make the entrypoint script executable

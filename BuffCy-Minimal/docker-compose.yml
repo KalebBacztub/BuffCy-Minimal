@@ -1,5 +1,4 @@
-version: '3.8'
-
+# No version needed for modern Docker Compose
 services:
   agent:
     build:
@@ -10,6 +9,9 @@ services:
       - run.env
     volumes:
       - .:/app
+      # --- THIS IS THE CRITICAL CHANGE ---
+      # Mount the Docker socket to allow the agent to run 'docker exec'
+      - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /app
     command: python3 main.py
     depends_on:
@@ -28,4 +30,8 @@ services:
     ports:
       - "8080:8080"
     privileged: true
-    # The command is now handled by the ENTRYPOINT in the Dockerfile
+    command: >
+      sh -c "echo ${ASLR_SETTING} > /proc/sys/kernel/randomize_va_space && 
+             echo 'ASLR set to:' && 
+             cat /proc/sys/kernel/randomize_va_space && 
+             python3 gdb_mcp_server.py"
