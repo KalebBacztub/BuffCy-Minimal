@@ -1,4 +1,3 @@
-# No version needed for modern Docker Compose
 services:
   agent:
     build:
@@ -6,11 +5,9 @@ services:
       dockerfile: Dockerfile.agent
     env_file:
       - .env
-      - run.env
+    # We mount the run.env file directly for the agent to read if needed
     volumes:
       - .:/app
-      # --- THIS IS THE CRITICAL CHANGE ---
-      # Mount the Docker socket to allow the agent to run 'docker exec'
       - /var/run/docker.sock:/var/run/docker.sock
     working_dir: /app
     command: python3 main.py
@@ -23,15 +20,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # This makes variables from the .env file available during the build
       args:
         - TARGET_BINARY=${TARGET_BINARY}
-    env_file:
-      - run.env
+        - CFLAGS=${TARGET_CFLAGS}
+    # This makes variables available inside the running container
+    environment:
+      - ASLR_SETTING=${ASLR_SETTING}
+      - TARGET_BINARY=${TARGET_BINARY}
     ports:
       - "8080:8080"
-    privileged: true
-    command: >
-      sh -c "echo ${ASLR_SETTING} > /proc/sys/kernel/randomize_va_space && 
-             echo 'ASLR set to:' && 
-             cat /proc/sys/kernel/randomize_va_space && 
-             python3 gdb_mcp_server.py"
+    privileged: true 
+
+networks:
+  default:
+    driver: bridge

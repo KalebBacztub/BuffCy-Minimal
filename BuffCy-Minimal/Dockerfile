@@ -3,35 +3,33 @@ FROM i386/ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install dependencies, including dnsutils
+# Install all necessary dependencies
 RUN apt-get update && apt-get install -y \
-    gdb \
-    python3 \
-    python3-pip \
-    dnsutils \
-    && apt-get clean
+    build-essential pkg-config libglib2.0-dev:i386 libdbus-1-dev:i386 \
+    libreadline-dev:i386 libxtables-dev:i386 libgnutls28-dev:i386 gdb \
+    python3 python3-pip dnsutils && apt-get clean
 
-# Install the GDB MI library for Python
 RUN pip3 install pygdbmi
 
-# Declare an argument that we will get from docker-compose
+# Add build-time arguments for compilation flags
+ARG CFLAGS
 ARG TARGET_BINARY
 
-# Set up the working directory inside the container
+# Copy and compile the connman source code
+WORKDIR /build
+COPY connman-1.34/ .
+RUN make clean
+RUN ./configure CFLAGS="${CFLAGS}" --prefix=/usr --sysconfdir=/etc --localstatedir=/var
+RUN make
+
+# Set up the final runtime environment
 WORKDIR /app
+RUN cp /build/src/connmand ./${TARGET_BINARY}
 
-# Copy the necessary files into the container
-COPY targets/${TARGET_BINARY} ./${TARGET_BINARY}
 COPY gdb_mcp_server.py .
-COPY dns_spoofer.py .
-COPY deliver_payload.py .
+COPY exploit_trigger.py .
 COPY entrypoint.sh .
-
-# Make the entrypoint script executable
 RUN chmod +x entrypoint.sh
 
-# Expose the GDB server port
 EXPOSE 8080
-
-# Set the entrypoint to our new script
 ENTRYPOINT ["./entrypoint.sh"]

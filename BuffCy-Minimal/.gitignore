@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment files
+.env
+run.env
+
+# IDE and OS files
+.vscode/
+.idea/
+*.DS_Store
+
+
+docker-compose.run.yml
