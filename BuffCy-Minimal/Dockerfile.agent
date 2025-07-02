@@ -4,6 +4,9 @@ FROM python:3.11-slim
 # Set the working directory inside the container
 WORKDIR /app
 
+# Update the package manager and install dnsutils (which contains 'dig')
+RUN apt-get update && apt-get install -y dnsutils && apt-get clean
+
 # Copy the requirements file first to leverage Docker cache
 COPY requirements.txt .
 

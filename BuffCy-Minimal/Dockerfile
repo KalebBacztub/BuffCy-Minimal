@@ -1,13 +1,14 @@
-# Use a more modern 32-bit version of Ubuntu with a compatible Python
+# Use a more modern 32-bit version of Ubuntu
 FROM i386/ubuntu:20.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install dependencies
+# Update and install dependencies, including dnsutils
 RUN apt-get update && apt-get install -y \
     gdb \
     python3 \
     python3-pip \
+    dnsutils \
     && apt-get clean
 
 # Install the GDB MI library for Python
@@ -19,10 +20,10 @@ ARG TARGET_BINARY
 # Set up the working directory inside the container
 WORKDIR /app
 
-# Copy the specific binary we chose into the container
+# Copy the necessary files into the container
 COPY targets/${TARGET_BINARY} ./${TARGET_BINARY}
-# Copy the server and the entrypoint script
 COPY gdb_mcp_server.py .
+COPY dns_spoofer.py .  # <-- ADD THIS LINE
 COPY entrypoint.sh .
 
 # Make the entrypoint script executable
