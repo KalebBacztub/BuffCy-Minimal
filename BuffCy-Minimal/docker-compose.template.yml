@@ -14,8 +14,13 @@ services:
       - target
     cap_add:
       - SYS_PTRACE
+    # FIX: Assign a static IP to the agent
+    networks:
+      connman_net:
+        ipv4_address: 172.20.0.10
 
   target:
+    container_name: buffcy_target 
     build:
       context: .
       dockerfile: Dockerfile
@@ -24,8 +29,16 @@ services:
         - TARGET_BINARY=%%TARGET_BINARY%%
     ports:
       - "8080:8080"
-    privileged: true 
+    privileged: true
+    command: %%TARGET_BINARY%%
+    # FIX: Connect the target to the same network
+    networks:
+      - connman_net
 
+# FIX: Define the custom network
 networks:
-  default:
+  connman_net:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
